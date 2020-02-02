@@ -19,20 +19,21 @@ module.exports = async (opts) => {
     offsets,
     fps,
     numFrames,
-    ffmpegPath
-  } = opts
+    ffmpegPath,
+    size,
+  } = opts;
 
-  if (!input) throw new Error('missing required input')
-  if (!output) throw new Error('missing required output')
+  if (!input) throw new Error('missing required input');
+  if (!output) throw new Error('missing required output');
 
-  const outputPath = path.parse(output)
-
-  if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath)
-  }
+  const outputPath = path.parse(output);
+  if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
   const cmd = ffmpeg(input)
     .on('start', (cmd) => log({ cmd }))
+
+  const info = await probe(input)
+  const numFramesTotal = parseInt(info.streams[0].nb_frames)
 
   if (timestamps || offsets) {
     const folder = outputPath.dir
@@ -54,8 +55,6 @@ module.exports = async (opts) => {
         '-r', Math.max(1, fps | 0)
       ])
     } else if (numFrames) {
-      const info = await probe(input)
-      const numFramesTotal = parseInt(info.streams[0].nb_frames)
       const nthFrame = (numFramesTotal / numFrames) | 0
 
       cmd.outputOptions([
@@ -71,11 +70,17 @@ module.exports = async (opts) => {
     }
 
     return new Promise((resolve, reject) => {
-      cmd
-        .on('end', () => resolve(output))
-        .on('error', (err) => reject(err))
-        .output(output)
-        .run()
-    })
+      if (size) cmd.size(size);
+      cmd.on('end', () => {
+        const results = [];
+        for (let i=1; i<=numFramesTotal; i++) {
+          results.push(output.replace('%d', i));
+        }
+        return resolve(results);
+      })
+      .on('error', (err) => reject(err))
+      .output(output)
+      .run();
+    });
   }
 }
